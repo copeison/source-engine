@@ -15,6 +15,11 @@
 #include <string.h>
 #include "tier1/strtools.h"
 #include <sys/stat.h>
+#ifdef POSIX
+#include <dirent.h>
+#include <strings.h>
+#include <unistd.h>
+#endif
 #include "bitmap/bitmap.h"
 #include "bitmap/tgaloader.h"
 #include "bitmap/psd.h"
@@ -54,11 +59,8 @@
 
 #define LOWRESIMAGE_DIM 16
 
-#ifdef POSIX
-#define LOWRES_IMAGE_FORMAT IMAGE_FORMAT_RGBA8888
-#else
+// DXT1/DXT5 use the STB compressor in bitmap on every platform.
 #define LOWRES_IMAGE_FORMAT IMAGE_FORMAT_DXT1
-#endif
 
 //#define DEBUG_NO_COMPRESSION
 static bool g_Quiet = false;
@@ -624,6 +626,18 @@ void VTexConfigInfo_t::ParseOptionKey( const char *pKeyName,  const char *pKeyVa
 	{
 		SetFlagValue( m_nFlags, TEXTUREFLAGS_SRGB, iValue );
 	}
+	else if( !stricmp( pKeyName, "minmip" ) )
+	{
+		// HL2-era name for this flag (0x400): retail textures built with
+		// "minmip" "1" have TEXTUREFLAGS_ALL_MIPS set.
+		SetFlagValue( m_nFlags, TEXTUREFLAGS_ALL_MIPS, iValue );
+	}
+	else if( !stricmp( pKeyName, "xbox_cacheable" ) || !stricmp( pKeyName, "clampr" ) )
+	{
+		// Used by HL2-era content but not by this vtex: xbox_cacheable is
+		// Xbox-only, and clampr was never a texture flag.
+		printf( "Warning: ignoring obsolete option \"%s\"\n", pKeyName );
+	}
 	else
 	{
 		VTexError("unrecognized option in text file - %s\n", pKeyName );
@@ -713,7 +727,7 @@ static ImageFormat ComputeDesiredImageFormat( IVTFTexture *pTexture, VTexConfigI
 #ifdef DEBUG_NO_COMPRESSION
 		targetFormat = IMAGE_FORMAT_BGRA8888;
 #else
-		targetFormat = IsPosix() ? IMAGE_FORMAT_BGRA8888 : IMAGE_FORMAT_DXT5; // No DXT compressor on Posix
+		targetFormat = IMAGE_FORMAT_DXT5; // STB compressor (bitmap) works on all platforms
 #endif
 	}
 	else if( nFlags & TEXTUREFLAGS_EIGHTBITALPHA )
@@ -722,7 +736,7 @@ static ImageFormat ComputeDesiredImageFormat( IVTFTexture *pTexture, VTexConfigI
 #ifdef DEBUG_NO_COMPRESSION
 		targetFormat = IMAGE_FORMAT_BGRA8888;
 #else
-		targetFormat = IsPosix() ? IMAGE_FORMAT_BGRA8888 : IMAGE_FORMAT_DXT5; // No DXT compressor on Posix
+		targetFormat = IMAGE_FORMAT_DXT5; // STB compressor (bitmap) works on all platforms
 #endif
 	}
 	else if ( nFlags & TEXTUREFLAGS_ONEBITALPHA )
@@ -732,7 +746,7 @@ static ImageFormat ComputeDesiredImageFormat( IVTFTexture *pTexture, VTexConfigI
 		targetFormat = IMAGE_FORMAT_BGRA8888;
 #else
 		//		targetFormat = IMAGE_FORMAT_DXT1_ONEBITALPHA;
-		targetFormat = IsPosix() ? IMAGE_FORMAT_BGRA8888 : IMAGE_FORMAT_DXT5; // No DXT compressor on Posix
+		targetFormat = IMAGE_FORMAT_DXT5; // STB compressor (bitmap) works on all platforms
 #endif
 	}
 	else
@@ -740,7 +754,7 @@ static ImageFormat ComputeDesiredImageFormat( IVTFTexture *pTexture, VTexConfigI
 #ifdef DEBUG_NO_COMPRESSION
 		targetFormat = IMAGE_FORMAT_BGR888;
 #else
-		targetFormat = IsPosix() ? IMAGE_FORMAT_BGR888 : IMAGE_FORMAT_DXT1; // No DXT compressor on Posix
+		targetFormat = IMAGE_FORMAT_DXT1; // STB compressor (bitmap) works on all platforms
 #endif
 	}
 	return targetFormat;
@@ -890,9 +904,56 @@ static void ComputeBufferHash( void const *pvBuffer, size_t numBytes, CRC32_t &u
 // Loads a file into a UTLBuffer,
 // also computes the hash of the buffer.
 //-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+// Content trees from Windows often have names that differ only in case from
+// the ones vtex derives from the .txt (foo.txt next to Foo.TGA). On POSIX,
+// match the file name (not the directories) case-insensitively.
+//-----------------------------------------------------------------------------
+static bool ResolveSourceFileName( const char *pFileName, char *pOut, int nOutSize )
+{
+	if ( access( pFileName, 0 ) == 0 )
+	{
+		V_strncpy( pOut, pFileName, nOutSize );
+		return true;
+	}
+#ifdef POSIX
+	char dir[MAX_PATH];
+	V_strncpy( dir, pFileName, sizeof( dir ) );
+	V_StripFilename( dir );
+	if ( !dir[0] )
+		V_strncpy( dir, ".", sizeof( dir ) );
+
+	const char *pName = V_UnqualifiedFileName( pFileName );
+	bool bFound = false;
+	if ( DIR *pDir = opendir( dir ) )
+	{
+		while ( struct dirent *pEntry = readdir( pDir ) )
+		{
+			if ( !strcasecmp( pEntry->d_name, pName ) )
+			{
+				V_snprintf( pOut, nOutSize, "%s/%s", dir, pEntry->d_name );
+				bFound = true;
+				break;
+			}
+		}
+		closedir( pDir );
+	}
+	return bFound;
+#else
+	return false;
+#endif
+}
+
+static bool SourceFileExists( const char *pFileName )
+{
+	char resolved[MAX_PATH];
+	return ResolveSourceFileName( pFileName, resolved, sizeof( resolved ) );
+}
+
 static bool LoadFile( const char *pFileName, CUtlBuffer &buf, bool bFailOnError, CRC32_t *puiHash )
 {
-	FILE *fp = fopen( pFileName, "rb" );
+	char resolved[MAX_PATH];
+	FILE *fp = ResolveSourceFileName( pFileName, resolved, sizeof( resolved ) ) ? fopen( resolved, "rb" ) : NULL;
 	if (!fp)
 	{
 		if ( bFailOnError )
@@ -986,10 +1047,6 @@ static void InitializeSrcTexture_PNG( IVTFTexture *pTexture, const char *pInputF
 
 	nWidth /= info.m_nReduceX;
 	nHeight /= info.m_nReduceY;
-
-	FILE *f = fopen("shit", "wb");
-	fwrite(pngBuffer.Base(), 1, 256*256*4, f);
-	fclose(f);
 
 	if (!pTexture->Init( nWidth, nHeight, nDepth, IMAGE_FORMAT_DEFAULT, info.m_nFlags, nFrameCount ))
 	{
@@ -1767,8 +1824,7 @@ static void AttachShtFile( const char *pFullNameWithoutExtension, IVTFTexture *p
 	Q_strncpy( shtName, pFullNameWithoutExtension, sizeof(shtName) );
 	Q_SetExtension( shtName, ".sht", sizeof(shtName) );
 
-	struct	_stat statBuf;
-	if( _stat( shtName, &statBuf ) == -1 )
+	if ( !SourceFileExists( shtName ) )
 		return;
 
 	printf( "Attaching .sht file %s.\n", shtName );
@@ -2030,8 +2086,11 @@ static bool GetKeyValueFromBuffer( CUtlBuffer &buffer, char *key, char *val )
 				return true;
 			else
 			{
-				sprintf( val, "parameter %s has no value", key );
-				return false;
+				// A key with no value. HL2-era vtex ignored these (the retail
+				// textures built from such files don't have the option applied),
+				// so skip it rather than failing.
+				printf( "Warning: parameter %s has no value, ignored\n", key );
+				continue;
 			}
 		}
 	}
@@ -2059,7 +2118,7 @@ static bool LoadConfigFile( const char *pFileBaseName, VTexConfigInfo_t &info, b
 
 	// Try TGA file with config
 	memcpy( pFileName + lenBaseName, ".tga", 4 );
-	if ( !bOK && ( 00 == access( pFileName, 00 ) ) ) // TGA file exists
+	if ( !bOK && SourceFileExists( pFileName ) ) // TGA file exists
 	{
 		g_eMode = eModeTGA;
 
@@ -2096,7 +2155,7 @@ static bool LoadConfigFile( const char *pFileBaseName, VTexConfigInfo_t &info, b
 
 	// PSD file attempt
 	memcpy( pFileName + lenBaseName, ".psd", 4 );
-	if ( !bOK && ( 00 == access( pFileName, 00 ) ) ) // If PSD mode was not disabled
+	if ( !bOK && SourceFileExists( pFileName ) ) // If PSD mode was not disabled
 	{
 		g_eMode = eModePSD;
 
@@ -2326,8 +2385,7 @@ bool IsCube( const char *inputName )
 	Q_strncat( tgaName, "rt", MAX_PATH, COPY_ALL_CHARACTERS );
 	Q_strncat( tgaName, pInputExtension, MAX_PATH, COPY_ALL_CHARACTERS );
 	Q_strncat( tgaName, GetSourceExtension(), MAX_PATH, COPY_ALL_CHARACTERS );
-	struct	_stat buf;
-	if( _stat( tgaName, &buf ) != -1 )
+	if( SourceFileExists( tgaName ) )
 	{
 		return true;
 	}
@@ -2452,8 +2510,16 @@ bool Process_File( char *pInputBaseName, int maxlen )
 	}
 	else if (!g_UseGameDir)
 	{
-		strcpy(outputDir, pInputBaseName);
-		Q_StripFilename(outputDir);
+		// -outdir applies here too (GetOutputDir is only used in game dir mode).
+		if ( g_ForcedOutputDir[0] )
+		{
+			strcpy( outputDir, g_ForcedOutputDir );
+		}
+		else
+		{
+			strcpy(outputDir, pInputBaseName);
+			Q_StripFilename(outputDir);
+		}
 	}
 
 	// Usage:
