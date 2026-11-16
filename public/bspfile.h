@@ -24,6 +24,11 @@
 #define MINBSPVERSION 19
 #define BSPVERSION 21
 
+// Version the tools (vbsp/vvis/vrad) write. The engine can load v21 (CS:GO-era)
+// maps, but the tools produce TF2-era v20 data: in particular the engine reads
+// static prop lump v10 as StaticPropLumpV10_21_t only in v21 maps.
+#define BSPVERSION_TOOLS_WRITE 20
+
 
 // This needs to match the value in gl_lightmap.h
 // Need to dynamically allocate the weights and light values in radial_t to make this variable.

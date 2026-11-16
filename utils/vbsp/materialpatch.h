@@ -44,6 +44,9 @@ bool GetValueFromPatchedMaterial( const char *pMaterialName, const char *pKey, c
 
 const char *GetOriginalMaterialNameForPatchedMaterial( const char *pPatchMaterialName );
 
+// Record that pNewMaterialName is a patched version of pOriginalMaterialName.
+void AddNewTranslation( const char *pOriginalMaterialName, const char *pNewMaterialName );
+
 MaterialSystemMaterial_t FindOriginalMaterial( const char *materialName, bool *pFound, bool bComplain = true );
 
 bool DoesMaterialHaveKeyValuePair( const char *pMaterialName, const char *pKeyName, const char *pSearchValue );

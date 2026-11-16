@@ -146,6 +146,9 @@ static int AddStaticPropDictLump( char const* pModelName )
 //-----------------------------------------------------------------------------
 // Load studio model vertex data from a file...
 //-----------------------------------------------------------------------------
+// Oldest model version accepted (retail HL2 ships v44).
+#define STUDIO_VERSION_MIN_SUPPORTED 44
+
 bool LoadStudioModel( char const* pModelName, char const* pEntityType, CUtlBuffer& buf )
 {
 	if ( !g_pFullFileSystem->ReadFile( pModelName, NULL, buf ) )
@@ -162,8 +165,13 @@ bool LoadStudioModel( char const* pModelName, char const* pEntityType, CUtlBuffe
 
 	Studio_ConvertStudioHdrToNewVersion( pHdr );
 
-	if (pHdr->version != STUDIO_VERSION)
+	// Studio_ConvertStudioHdrToNewVersion no longer bumps the version number in
+	// this tree, so accept the older versions the engine itself loads (retail
+	// HL2 ships v44).
+	if ( pHdr->version < STUDIO_VERSION_MIN_SUPPORTED || pHdr->version > STUDIO_VERSION )
 	{
+		Warning( "Error! Model \"%s\" is version %d; vbsp supports %d to %d.\n",
+			pModelName, pHdr->version, STUDIO_VERSION_MIN_SUPPORTED, STUDIO_VERSION );
 		return false;
 	}
 
@@ -538,8 +546,37 @@ static void SetLumpData( )
 	if (handle != g_GameLumps.InvalidGameLump())
 		g_GameLumps.DestroyGameLump(handle);
 
+	// On disk the props are StaticPropLumpV10_t (GAMELUMP_STATIC_PROPS_VERSION).
+	// StaticPropLump_t is the engine's in-memory superset of all versions and
+	// is larger, so it must not be written directly.
+	COMPILE_TIME_ASSERT( GAMELUMP_STATIC_PROPS_VERSION == 10 );
+	CUtlVector<StaticPropLumpV10_t> diskProps;
+	diskProps.SetCount( s_StaticPropLump.Count() );
+	for ( int i = 0; i < s_StaticPropLump.Count(); ++i )
+	{
+		const StaticPropLump_t &src = s_StaticPropLump[i];
+		StaticPropLumpV10_t &dst = diskProps[i];
+		memset( &dst, 0, sizeof( dst ) );
+		dst.m_Origin				= src.m_Origin;
+		dst.m_Angles				= src.m_Angles;
+		dst.m_PropType				= src.m_PropType;
+		dst.m_FirstLeaf				= src.m_FirstLeaf;
+		dst.m_LeafCount				= src.m_LeafCount;
+		dst.m_Solid					= src.m_Solid;
+		dst.m_Skin					= src.m_Skin;
+		dst.m_FadeMinDist			= src.m_FadeMinDist;
+		dst.m_FadeMaxDist			= src.m_FadeMaxDist;
+		dst.m_LightingOrigin		= src.m_LightingOrigin;
+		dst.m_flForcedFadeScale		= src.m_flForcedFadeScale;
+		dst.m_nMinDXLevel			= src.m_nMinDXLevel;
+		dst.m_nMaxDXLevel			= src.m_nMaxDXLevel;
+		dst.m_Flags					= src.m_Flags;
+		dst.m_nLightmapResolutionX	= src.m_nLightmapResolutionX;
+		dst.m_nLightmapResolutionY	= src.m_nLightmapResolutionY;
+	}
+
 	int dictsize = s_StaticPropDictLump.Size() * sizeof(StaticPropDictLump_t);
-	int objsize = s_StaticPropLump.Size() * sizeof(StaticPropLump_t);
+	int objsize = diskProps.Count() * sizeof(StaticPropLumpV10_t);
 	int leafsize = s_StaticPropLeafLump.Size() * sizeof(StaticPropLeafLump_t);
 	int size = dictsize + objsize + leafsize + 3 * sizeof(int);
 
@@ -553,9 +590,9 @@ static void SetLumpData( )
 	buf.PutInt( s_StaticPropLeafLump.Size() );
 	if (leafsize)
 		buf.Put( s_StaticPropLeafLump.Base(), leafsize );
-	buf.PutInt( s_StaticPropLump.Size() );
+	buf.PutInt( diskProps.Count() );
 	if (objsize)
-		buf.Put( s_StaticPropLump.Base(), objsize );
+		buf.Put( diskProps.Base(), objsize );
 }
 
 

@@ -150,6 +150,7 @@ projects={
 	# Asset compilers, added to the game build with --tools
 	'tools': [
 		'fgdlib',
+		'materialsystem/shaderapiempty',
 		'utils/lzma',
 		'utils/vbsp',
 	]

@@ -85,13 +85,18 @@ void CreateWorldVertexTransitionPatchedMaterial( const char *pOriginalMaterialNa
 		RemoveKey( kv, "$surfaceprop2" );
 		// If we didn't want a basetexture on the first texture in the blend, we don't want an envmap at all.
 		KeyValues *basetexturenoenvmap = kv->FindKey( "$BASETEXTURENOENVMAP" );
-		if( basetexturenoenvmap->GetInt() )
+		if( basetexturenoenvmap && basetexturenoenvmap->GetInt() )
 		{
 			RemoveKey( kv, "$envmap" );
 		}
 
 		Warning( "Patching WVT material: %s\n", pPatchedMaterialName );
 		WriteMaterialKeyValuesToPak( pPatchedMaterialName, kv );
+
+		// Let FindOriginalMaterial() map the patch back to the original, as
+		// CreateMaterialPatch() does. Otherwise lookups of tool keys such as
+		// %detailtype fail and no detail props are placed on these faces.
+		AddNewTranslation( pOriginalMaterialName, pPatchedMaterialName );
 	}
 }
 

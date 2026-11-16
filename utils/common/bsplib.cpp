@@ -2260,6 +2260,9 @@ void LoadBSPFile( const char *filename )
 	
 	numleafwaterdata = CopyLump( LUMP_LEAFWATERDATA, dleafwaterdata );
 	g_PhysCollideSize = CopyVariableLump<byte>( FIELD_CHARACTER, LUMP_PHYSCOLLIDE, (void**)&g_pPhysCollide );
+	// LUMP_PHYSCOLLIDESURFACE is rewritten from g_pPhysCollide on save; don't
+	// also carry the old copy through as an unknown lump.
+	g_Lumps.bLumpParsed[LUMP_PHYSCOLLIDESURFACE] = true;
 	g_PhysDispSize = CopyVariableLump<byte>( FIELD_CHARACTER, LUMP_PHYSDISP, (void**)&g_pPhysDisp );
 
 	g_numvertnormals = CopyLump( FIELD_VECTOR, LUMP_VERTNORMALS, (float*)g_vertnormals );
@@ -2632,7 +2635,7 @@ void WriteBSPFile( const char *filename, char *pUnused )
 	memset( g_pBSPHeader, 0, sizeof( dheader_t ) );
 
 	g_pBSPHeader->ident = IDBSPHEADER;
-	g_pBSPHeader->version = BSPVERSION;
+	g_pBSPHeader->version = BSPVERSION_TOOLS_WRITE;
 	g_pBSPHeader->mapRevision = g_MapRevision;
 
 	g_hBSPFile = SafeOpenWrite( filename );
@@ -2709,6 +2712,9 @@ void WriteBSPFile( const char *filename, char *pUnused )
 	if ( g_pPhysCollide )
 	{
 		AddLump( LUMP_PHYSCOLLIDE, g_pPhysCollide, g_PhysCollideSize );
+		// The Linux engine loads this lump in preference to LUMP_PHYSCOLLIDE.
+		// Without MOPP data (displacements are virtual terrain) they're identical.
+		AddLump( LUMP_PHYSCOLLIDESURFACE, g_pPhysCollide, g_PhysCollideSize );
 	}
 
 	if ( g_pPhysDisp )

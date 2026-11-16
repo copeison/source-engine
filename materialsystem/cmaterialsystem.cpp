@@ -672,7 +672,11 @@ bool CMaterialSystem::Connect( CreateInterfaceFn factory )
 	g_pLauncherMgr = (ILauncherMgr *)factory( "SDLMgrInterface001" /*SDL_MGR_INTERFACE_VERSION*/, NULL );		
 	if ( !g_pLauncherMgr )
 	{
-		return false;
+		// Command-line tools (vbsp, vrad, ...) run headless on shaderapiempty
+		// and have no SDL launcher; they never set a video mode.
+		bool bHeadless = m_pShaderDLL && Q_stristr( m_pShaderDLL, "shaderapiempty" );
+		if ( !bHeadless )
+			return false;
 	}
 #endif // USE_SDL
 #endif // !DEDICATED
@@ -1295,7 +1299,8 @@ bool CMaterialSystem::SetMode( void* hwnd, const MaterialSystem_Config_t &config
 #if defined( USE_SDL )
 	uint width = info.m_DisplayMode.m_nWidth;
 	uint height = info.m_DisplayMode.m_nHeight;
-	g_pLauncherMgr->RenderedSize( width, height, true ); // true = set
+	if ( g_pLauncherMgr )
+		g_pLauncherMgr->RenderedSize( width, height, true ); // true = set
 #endif
 
 	TextureManager()->FreeStandardRenderTargets();
@@ -2593,6 +2598,7 @@ bool CMaterialSystem::OverrideConfig( const MaterialSystem_Config_t &_config, bo
 #if defined( USE_SDL )
 		uint width = info.m_DisplayMode.m_nWidth;
 		uint height = info.m_DisplayMode.m_nHeight;
+		if ( g_pLauncherMgr )
 		g_pLauncherMgr->RenderedSize( width, height, true ); // true = set
 #endif
 	}

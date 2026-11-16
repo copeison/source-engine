@@ -13,7 +13,8 @@
 #include "mstristrip.h"
 #include "writebsp.h"
 #include "pacifier.h"
-// disp_ivp.h is not in this tree; see physcollision_stub.cpp
+// disp_ivp.h is not in this tree; displacement collision is built by the
+// engine at load time (virtual terrain), see ivp.cpp
 #include "disp_tesselate.h"
 #include "builddisp.h"
 #include "mathlib/vector.h"

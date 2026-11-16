@@ -37,7 +37,7 @@ def build(bld):
 		'vbsp.cpp',
 		'worldvertextransitionfixup.cpp',
 		'writebsp.cpp',
-		'physcollision_stub.cpp',
+		'ivp.cpp',
 
 		'../common/bsplib.cpp',
 		'../common/cmdlib.cpp',

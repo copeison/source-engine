@@ -321,6 +321,27 @@ void LoadEmitDetailObjectDictionary( const char* pGameDir )
 
 
 //-----------------------------------------------------------------------------
+// Random numbers for detail placement. Same algorithm as the MSVC CRT rand():
+// values are 0..VALVE_RAND_MAX on every platform (glibc's RAND_MAX is 2^31-1,
+// which broke the rand() / VALVE_RAND_MAX math here), and since placement is
+// seeded per Hammer face, the same map places detail props in the same spots
+// as Windows vbsp.
+//-----------------------------------------------------------------------------
+static unsigned int s_nDetailRandState = 1;
+
+static void DetailSRand( unsigned int nSeed )
+{
+	s_nDetailRandState = nSeed;
+}
+
+static int DetailRand()
+{
+	s_nDetailRandState = s_nDetailRandState * 214013u + 2531011u;
+	return (int)( ( s_nDetailRandState >> 16 ) & VALVE_RAND_MAX );
+}
+
+
+//-----------------------------------------------------------------------------
 // Selects a detail group
 //-----------------------------------------------------------------------------
 static int SelectGroup( const DetailObject_t& detail, float alpha )
@@ -349,7 +370,7 @@ static int SelectGroup( const DetailObject_t& detail, float alpha )
 	}
 
 	// Pick a number, any number...
-	float r = rand() / (float)VALVE_RAND_MAX;
+	float r = DetailRand() / (float)VALVE_RAND_MAX;
 
 	// When dist == 0, we *always* want start.
 	// When dist == 1, we *always* want end
@@ -364,7 +385,7 @@ static int SelectGroup( const DetailObject_t& detail, float alpha )
 static int SelectDetail( DetailObjectGroup_t const& group )
 {
 	// Pick a number, any number...
-	float r = rand() / (float)VALVE_RAND_MAX;
+	float r = DetailRand() / (float)VALVE_RAND_MAX;
 
 	// Look through the list of models + pick the one associated with this number
 	for ( int i = 0; i < group.m_Models.Count(); ++i )
@@ -564,7 +585,7 @@ static void PlaceDetail( DetailModel_t const& model, const Vector& pt, const Vec
 		float probability = (cosAngle - model.m_MaxCosAngle) / 
 			(model.m_MinCosAngle - model.m_MaxCosAngle);
 
-		float t = rand() / (float)VALVE_RAND_MAX;
+		float t = DetailRand() / (float)VALVE_RAND_MAX;
 		if (t > probability)
 			return;
 	}
@@ -574,7 +595,7 @@ static void PlaceDetail( DetailModel_t const& model, const Vector& pt, const Vec
 	if (model.m_Flags & MODELFLAG_UPRIGHT)
 	{
 		// If it's upright, we just select a random yaw
-		angles.Init( 0, 360.0f * rand() / (float)VALVE_RAND_MAX, 0.0f );
+		angles.Init( 0, 360.0f * DetailRand() / (float)VALVE_RAND_MAX, 0.0f );
 	}
 	else
 	{
@@ -598,7 +619,7 @@ static void PlaceDetail( DetailModel_t const& model, const Vector& pt, const Vec
 		matrix.SetBasisVectors( xaxis, yaxis, zaxis );
 		matrix.SetTranslation( vec3_origin );
 
-		float rotAngle = 360.0f * rand() / (float)VALVE_RAND_MAX;
+		float rotAngle = 360.0f * DetailRand() / (float)VALVE_RAND_MAX;
 		VMatrix rot = SetupMatrixAxisRot( Vector( 0, 0, 1 ), rotAngle );
 		matrix = matrix * rot;
 
@@ -670,8 +691,8 @@ static void EmitDetailObjectsOnFace( dface_t* pFace, DetailObject_t& detail )
 		for (int i = 0; i < numSamples; ++i )
 		{
 			// Create a random sample...
-			float u = rand() / (float)VALVE_RAND_MAX;
-			float v = rand() / (float)VALVE_RAND_MAX;
+			float u = DetailRand() / (float)VALVE_RAND_MAX;
+			float v = DetailRand() / (float)VALVE_RAND_MAX;
 			if (v > 1.0f - u)
 			{
 				u = 1.0f - u;
@@ -756,8 +777,8 @@ static void EmitDetailObjectsOnDisplacementFace( dface_t* pFace,
 	for (int i = 0; i < numSamples; ++i )
 	{
 		// Create a random sample...
-		float u = rand() / (float)VALVE_RAND_MAX;
-		float v = rand() / (float)VALVE_RAND_MAX;
+		float u = DetailRand() / (float)VALVE_RAND_MAX;
+		float v = DetailRand() / (float)VALVE_RAND_MAX;
 
 		// Compute alpha
 		float alpha;
@@ -883,7 +904,7 @@ void EmitDetailModels()
 #ifdef WARNSEEDNUMBER
 		Warning( "[%d]\n",detailpropseed );
 #endif
-		srand( detailpropseed );
+		DetailSRand( detailpropseed );
 		RandomSeed( detailpropseed );
 
 		if (pFace[j].dispinfo < 0)
