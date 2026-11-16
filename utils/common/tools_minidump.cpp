@@ -5,10 +5,12 @@
 // $NoKeywords: $
 //=============================================================================//
 
+#include "tools_minidump.h"
+
+#ifdef _WIN32
 #include <windows.h>
 #include <dbghelp.h>
 #include "tier0/minidump.h"
-#include "tools_minidump.h"
 
 static bool g_bToolsWriteFullMinidumps = false;
 static ToolsExceptionHandler g_pCustomExceptionHandler = NULL;
@@ -59,3 +61,24 @@ void SetupToolsMinidumpHandler( ToolsExceptionHandler fn )
 	g_pCustomExceptionHandler = fn;
 	SetUnhandledExceptionFilter( ToolsExceptionFilter_Custom );
 }
+
+#else // _WIN32
+
+// Minidumps are Windows-only. On other platforms crashes are left to the
+// OS (core dumps / a debugger), so these are no-ops.
+
+void EnableFullMinidumps( bool bFull )
+{
+	(void)bFull;
+}
+
+void SetupDefaultToolsMinidumpHandler()
+{
+}
+
+void SetupToolsMinidumpHandler( ToolsExceptionHandler fn )
+{
+	(void)fn;
+}
+
+#endif // _WIN32

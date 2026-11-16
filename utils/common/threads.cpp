@@ -13,7 +13,13 @@
 
 #define	USED
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <thread>
+#include <mutex>
+#include <sys/resource.h>
+#endif
 #include "cmdlib.h"
 #define NO_THREAD_NAMES
 #include "threads.h"
@@ -40,7 +46,11 @@ qboolean		pacifier;
 qboolean	threaded;
 bool g_bLowPriorityThreads = false;
 
+#ifdef _WIN32
 HANDLE g_ThreadHandles[MAX_THREADS];
+#else
+static std::thread g_Threads[MAX_THREADS];
+#endif
 
 
 
@@ -98,6 +108,10 @@ void RunThreadsOnIndividual (int workcnt, qboolean showpacifier, ThreadWorkerFn 
 }
 
 
+int		numthreads = -1;
+static int enter;
+
+#ifdef _WIN32
 /*
 ===================================================================
 
@@ -105,10 +119,7 @@ WIN32
 
 ===================================================================
 */
-
-int		numthreads = -1;
 CRITICAL_SECTION		crit;
-static int enter;
 
 
 class CCritInit
@@ -218,7 +229,97 @@ void RunThreads_End()
 
 	threaded = false;
 }
-	
+
+#else // _WIN32
+/*
+===================================================================
+
+POSIX
+
+===================================================================
+*/
+
+static std::mutex crit;
+
+void SetLowPriority()
+{
+	setpriority( PRIO_PROCESS, 0, 19 );
+}
+
+
+void ThreadSetDefault (void)
+{
+	if (numthreads == -1)	// not set manually
+	{
+		numthreads = (int)std::thread::hardware_concurrency();
+		if (numthreads < 1)
+			numthreads = 1;
+		if (numthreads > MAX_TOOL_THREADS)
+			numthreads = MAX_TOOL_THREADS;
+	}
+
+	Msg ("%i threads\n", numthreads);
+}
+
+
+void ThreadLock (void)
+{
+	if (!threaded)
+		return;
+	crit.lock();
+	if (enter)
+		Error ("Recursive ThreadLock\n");
+	enter = 1;
+}
+
+void ThreadUnlock (void)
+{
+	if (!threaded)
+		return;
+	if (!enter)
+		Error ("ThreadUnlock without lock\n");
+	enter = 0;
+	crit.unlock();
+}
+
+
+void RunThreads_Start( RunThreadsFn fn, void *pUserData, ERunThreadsPriority ePriority )
+{
+	Assert( numthreads > 0 );
+	threaded = true;
+
+	if ( numthreads > MAX_TOOL_THREADS )
+		numthreads = MAX_TOOL_THREADS;
+
+	// Per-thread priority isn't portable on POSIX; SetLowPriority() (-low)
+	// lowers the whole process instead.
+	(void)ePriority;
+
+	for ( int i=0; i < numthreads ;i++ )
+	{
+		g_RunThreadsData[i].m_iThread = i;
+		g_RunThreadsData[i].m_pUserData = pUserData;
+		g_RunThreadsData[i].m_Fn = fn;
+
+		CRunThreadsData *pData = &g_RunThreadsData[i];
+		g_Threads[i] = std::thread( [pData]() { pData->m_Fn( pData->m_iThread, pData->m_pUserData ); } );
+	}
+}
+
+
+void RunThreads_End()
+{
+	for ( int i=0; i < numthreads; i++ )
+	{
+		if ( g_Threads[i].joinable() )
+			g_Threads[i].join();
+	}
+
+	threaded = false;
+}
+
+#endif // _WIN32
+
 
 /*
 =============

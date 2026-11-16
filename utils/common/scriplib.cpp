@@ -13,11 +13,12 @@
 #include "cmdlib.h"
 #include "scriplib.h"
 #if defined( _X360 )
-#include "xbox\xbox_win32stubs.h"
+#include "xbox/xbox_win32stubs.h"
 #endif
 #if defined(POSIX)
-#include "../../filesystem/linux_support.h"
 #include <sys/stat.h>
+#include <dirent.h>
+#include <fnmatch.h>
 #endif
 /*
 =============================================================================
@@ -1213,55 +1214,49 @@ int CScriptLib::GetFileList( const char* pDirPath, const char* pPattern, CUtlVec
 
 	_findclose( h );
 #elif defined(POSIX)
-	FIND_DATA findData;
+	// sourcePath/fullPath were built with '\\' separators above.
+	Q_FixSlashes( sourcePath );
 	Q_FixSlashes( fullPath );
-	void *h = FindFirstFile( fullPath, &findData );
-	if ( (int)h == -1 )
+
+	const char *pMask = bFindDirs ? "*" : V_UnqualifiedFileName( fullPath );
+
+	DIR *pDir = opendir( sourcePath );
+	if ( !pDir )
 	{
 		return 0;
 	}
 
-	do
+	struct dirent *pEntry;
+	while ( ( pEntry = readdir( pDir ) ) != NULL )
 	{
-		// dos attribute complexities i.e. _A_NORMAL is 0
-		if ( bFindDirs )
-		{
-			// skip non dirs
-			if ( !( findData.dwFileAttributes & S_IFDIR ) )
-				continue;
-		}
-		else
-		{
-			// skip dirs
-			if ( findData.dwFileAttributes & S_IFDIR )
-				continue;
-		}
-
-		if ( !stricmp( findData.cFileName, "." ) )
+		if ( !strcmp( pEntry->d_name, "." ) || !strcmp( pEntry->d_name, ".." ) )
 			continue;
 
-		if ( !stricmp( findData.cFileName, ".." ) )
+		// Windows patterns are case-insensitive.
+		if ( fnmatch( pMask, pEntry->d_name, FNM_CASEFOLD ) != 0 )
 			continue;
 
 		char fileName[MAX_PATH];
-		strcpy( fileName, sourcePath );
-		strcat( fileName, findData.cFileName );
+		V_snprintf( fileName, sizeof( fileName ), "%s%s", sourcePath, pEntry->d_name );
+
+		struct stat statbuf;
+		if ( stat( fileName, &statbuf ) != 0 )
+			continue;
+
+		bool bIsDir = S_ISDIR( statbuf.st_mode );
+		if ( bIsDir != bFindDirs )
+			continue;
 
 		int j = fileList.AddToTail();
 		fileList[j].fileName.Set( fileName );
-		struct stat statbuf;
-		if ( stat( fileName, &statbuf ) )
 #ifdef OSX
-			fileList[j].timeWrite = statbuf.st_mtimespec.tv_sec;
+		fileList[j].timeWrite = statbuf.st_mtimespec.tv_sec;
 #else
-			fileList[j].timeWrite = statbuf.st_mtime;
+		fileList[j].timeWrite = statbuf.st_mtime;
 #endif
-		else
-			fileList[j].timeWrite = 0;
 	}
-	while ( !FindNextFile( h, &findData ) );
 
-	FindClose( h );
+	closedir( pDir );
 
 #else
 #error

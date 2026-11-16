@@ -20,6 +20,8 @@
 #pragma warning(disable: 4530)
 
 #include <stdio.h>
+#include <string.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <algorithm>
 #include <list>

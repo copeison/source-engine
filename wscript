@@ -146,6 +146,12 @@ projects={
 		'vstdlib',
 		'vtf',
 		'stub_steam'
+	],
+	# Asset compilers, added to the game build with --tools
+	'tools': [
+		'fgdlib',
+		'utils/lzma',
+		'utils/vbsp',
 	]
 }
 
@@ -182,6 +188,7 @@ def define_platform(conf):
 	conf.env.TOGLES = conf.options.TOGLES
 	conf.env.GL = conf.options.GL and not conf.options.TESTS and not conf.options.DEDICATED
 	conf.env.OPUS = conf.options.OPUS
+	conf.env.TOOLS = conf.options.TOOLS
 
 	arch32 = conf.run_test(CPP_32BIT_CHECK, 'Testing 32bit support')
 	arch64 = conf.run_test(CPP_64BIT_CHECK, 'Testing 64bit support')
@@ -318,6 +325,9 @@ def options(opt):
 	# TODO(nillerusr): add wscript for opus building
 	grp.add_option('--enable-opus', action = 'store_true', dest = 'OPUS', default = False,
 		help = 'build engine with Opus voice codec [default: %default]')
+
+	grp.add_option('--tools', action = 'store_true', dest = 'TOOLS', default = False,
+		help = 'also build the asset compilers (vbsp, ...) [default: %default]')
 
 	grp.add_option('--sanitize', action = 'store', dest = 'SANITIZE', default = '',
 		help = 'build with sanitizers [default: %default]')
@@ -622,6 +632,8 @@ def configure(conf):
 	elif conf.options.DEDICATED:
 		conf.add_subproject(projects['dedicated'])
 	else:
+		if conf.options.TOOLS:
+			projects['game'] += projects['tools']
 		conf.add_subproject(projects['game'])
 
 def build(bld):
@@ -648,5 +660,8 @@ def build(bld):
 			projects['game'] += ['togles']
 		elif bld.env.GL:
 			projects['game'] += ['togl']
+
+		if bld.env.TOOLS:
+			projects['game'] += projects['tools']
 
 		bld.add_subproject(projects['game'])

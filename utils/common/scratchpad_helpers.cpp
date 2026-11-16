@@ -99,5 +99,7 @@ void ScratchPad_DrawWorld( IScratchPad3D *pPad, bool bDrawFaceNumbers, const CSP
 void ScratchPad_DrawWorld( bool bDrawFaceNumbers, const CSPColor &faceColor )
 {
 	IScratchPad3D *pPad = ScratchPad3D_Create();
+	if ( !pPad )
+		return;
 	ScratchPad_DrawWorld( pPad, bDrawFaceNumbers );
 }

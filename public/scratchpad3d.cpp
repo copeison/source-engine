@@ -631,5 +631,14 @@ IScratchPad3D* ScratchPad3D_Create( char const *pFilename )
 	CScratchPad3D *pRet = new CScratchPad3D( pFilename, pFileSystem, true );
 	return pRet;
 }
+#else // POSIX
+
+// The scratchpad viewer is Windows-only. Callers must handle NULL.
+IScratchPad3D* ScratchPad3D_Create( char const *pFilename )
+{
+	(void)pFilename;
+	return NULL;
+}
+
 #endif // POSIX
 

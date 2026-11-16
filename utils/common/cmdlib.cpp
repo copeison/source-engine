@@ -36,6 +36,9 @@
 
 #if defined( _WIN32 ) || defined( WIN32 )
 #include <direct.h>
+#else
+#include <mutex>
+#include <unistd.h>
 #endif
 
 #if defined( _X360 )
@@ -60,8 +63,6 @@ CUtlLinkedList<SpewHookFn, unsigned short> g_ExtraSpewHooks;
 
 bool g_bStopOnExit = false;
 void (*g_ExtraSpewHook)(const char*) = NULL;
-
-#if defined( _WIN32 ) || defined( WIN32 )
 
 void CmdLib_FPrintf( FileHandle_t hFile, const char *pFormat, ... )
 {
@@ -128,7 +129,7 @@ char* CmdLib_FGets( char *pOut, int outSize, FileHandle_t hFile )
 	return pOut;
 }
 
-#if !defined( _X360 )
+#if defined( _WIN32 ) && !defined( _X360 )
 #include <wincon.h>
 #endif
 
@@ -141,7 +142,11 @@ public:
 		if ( g_bStopOnExit )
 		{
 			Warning( "\nPress any key to quit.\n" );
+#ifdef _WIN32
 			getch();
+#else
+			getchar();
+#endif
 		}
 	}
 } g_ExitStopper;
@@ -151,9 +156,36 @@ static unsigned short g_InitialColor = 0xFFFF;
 static unsigned short g_LastColor = 0xFFFF;
 static unsigned short g_BadColor = 0xFFFF;
 static WORD g_BackgroundFlags = 0xFFFF;
+#if !defined( _WIN32 )
+// Color bits as on Windows: 1 = blue, 2 = green, 4 = red, 8 = intensity.
+#define FOREGROUND_BLUE			0x0001
+#define FOREGROUND_GREEN		0x0002
+#define FOREGROUND_RED			0x0004
+#define FOREGROUND_INTENSITY	0x0008
+static bool g_bAnsiColors = false;
+
+static void ApplyAnsiColor( unsigned short color )
+{
+	if ( !g_bAnsiColors )
+		return;
+	if ( color == g_InitialColor )
+	{
+		fputs( "\033[0m", stdout );
+		return;
+	}
+	// ANSI color index: bit 0 red, bit 1 green, bit 2 blue.
+	int ansi = ( ( color & 4 ) ? 1 : 0 ) | ( ( color & 2 ) ? 2 : 0 ) | ( ( color & 1 ) ? 4 : 0 );
+	fprintf( stdout, "\033[%d;%dm", ( color & 8 ) ? 1 : 0, 30 + ansi );
+}
+#endif
+
 static void GetInitialColors( )
 {
-#if !defined( _X360 )
+#if !defined( _WIN32 )
+	g_bAnsiColors = isatty( STDOUT_FILENO ) != 0;
+	g_InitialColor = g_LastColor = 0xFFFF;
+	g_BadColor = 0;
+#elif !defined( _X360 )
 	// Get the old background attributes.
 	CONSOLE_SCREEN_BUFFER_INFO oldInfo;
 	GetConsoleScreenBufferInfo( GetStdHandle( STD_OUTPUT_HANDLE ), &oldInfo );
@@ -187,14 +219,21 @@ WORD SetConsoleTextColor( int red, int green, int blue, int intensity )
 	if (g_LastColor == g_BadColor)
 		g_LastColor = g_InitialColor;
 
+#if defined( _WIN32 )
 	SetConsoleTextAttribute( GetStdHandle( STD_OUTPUT_HANDLE ), g_LastColor | g_BackgroundFlags );
+#else
+	ApplyAnsiColor( g_LastColor );
+#endif
 #endif
 	return ret;
 }
 
 void RestoreConsoleTextColor( WORD color )
 {
-#if !defined( _X360 )
+#if !defined( _WIN32 )
+	ApplyAnsiColor( color );
+	g_LastColor = color;
+#elif !defined( _X360 )
 	SetConsoleTextAttribute( GetStdHandle( STD_OUTPUT_HANDLE ), color | g_BackgroundFlags );
 	g_LastColor = color;
 #endif
@@ -216,7 +255,11 @@ void Error( char const *pMsg, ... )
 
 #else
 
+#ifdef _WIN32
 CRITICAL_SECTION g_SpewCS;
+#else
+static std::recursive_mutex g_SpewCS;
+#endif
 bool g_bSpewCSInitted = false;
 bool g_bSuppressPrintfOutput = false;
 
@@ -225,14 +268,20 @@ SpewRetval_t CmdLib_SpewOutputFunc( SpewType_t type, char const *pMsg )
 	// Hopefully two threads won't call this simultaneously right at the start!
 	if ( !g_bSpewCSInitted )
 	{
+#ifdef _WIN32
 		InitializeCriticalSection( &g_SpewCS );
+#endif
 		g_bSpewCSInitted = true;
 	}
 
 	WORD old;
 	SpewRetval_t retVal;
 	
+#ifdef _WIN32
 	EnterCriticalSection( &g_SpewCS );
+#else
+	g_SpewCS.lock();
+#endif
 	{
 		if (( type == SPEW_MESSAGE ) || (type == SPEW_LOG ))
 		{
@@ -297,12 +346,16 @@ SpewRetval_t CmdLib_SpewOutputFunc( SpewType_t type, char const *pMsg )
 		if ( !g_bSuppressPrintfOutput || type == SPEW_ERROR )
 			printf( "%s", pMsg );
 
+#ifdef _WIN32
 		OutputDebugString( pMsg );
+#endif
 		
 		if ( type == SPEW_ERROR )
 		{
 			printf( "\n" );
+#ifdef _WIN32
 			OutputDebugString( "\n" );
+#endif
 		}
 
 		if( g_pLogFile )
@@ -317,7 +370,11 @@ SpewRetval_t CmdLib_SpewOutputFunc( SpewType_t type, char const *pMsg )
 
 		RestoreConsoleTextColor( old );
 	}
+#ifdef _WIN32
 	LeaveCriticalSection( &g_SpewCS );
+#else
+	g_SpewCS.unlock();
+#endif
 
 	if ( type == SPEW_ERROR )
 	{
@@ -413,12 +470,18 @@ void CmdLib_Cleanup()
 
 void CmdLib_Exit( int exitCode )
 {
+#ifdef _WIN32
 	TerminateProcess( GetCurrentProcess(), 1 );
+#else
+	// Like TerminateProcess: exit immediately without running static
+	// destructors, which can hang with worker threads still running.
+	fflush( stdout );
+	fflush( stderr );
+	_exit( 1 );
+#endif
 }	
 
 
-
-#endif
 
 #endif
 

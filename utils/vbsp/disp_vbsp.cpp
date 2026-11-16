@@ -13,7 +13,8 @@
 #include "mstristrip.h"
 #include "writebsp.h"
 #include "pacifier.h"
-#include "disp_ivp.h"
+// disp_ivp.h is not in this tree; see physcollision_stub.cpp
+#include "disp_tesselate.h"
 #include "builddisp.h"
 #include "mathlib/vector.h"
 
@@ -434,6 +435,34 @@ bool FindEnclosingTri(
 
 	return false;
 }
+
+//-----------------------------------------------------------------------------
+// Collects the triangle indices of a displacement tesselation.
+// (Was declared in disp_ivp.h, which is not in this tree.)
+//-----------------------------------------------------------------------------
+class CVBSPTesselateHelper : public CBaseTesselateHelper
+{
+public:
+	void EndTriangle()
+	{
+		m_pIndices->AddToTail( m_TempIndices[0] );
+		m_pIndices->AddToTail( m_TempIndices[1] );
+		m_pIndices->AddToTail( m_TempIndices[2] );
+	}
+
+	DispNodeInfo_t& GetNodeInfo( int iNodeBit )
+	{
+		// vbsp doesn't use per-node info. Per-instance (not static) so that
+		// threads tesselating at the same time don't share it.
+		return m_DummyNodeInfo;
+	}
+
+public:
+	CUtlVector<unsigned short> *m_pIndices;
+
+private:
+	DispNodeInfo_t m_DummyNodeInfo;
+};
 
 void SnapRemainingVertsToSurface( CCoreDispInfo *pCoreDisp, ddispinfo_t *pDispInfo )
 {
